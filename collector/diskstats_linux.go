@@ -36,7 +36,7 @@ const (
 	// See also https://www.kernel.org/doc/Documentation/block/stat.txt
 	unixSectorSize = 512.0
 
-	diskstatsDefaultIgnoredDevices = "^(ram|loop|fd|(h|s|v|xv)d[a-z]|nvme\\d+n\\d+p)\\d+$"
+	diskstatsDefaultIgnoredDevices = "^(sr|ram|loop|fd|(h|s|v|xv)d[a-z]|nvme\\d+n\\d+p)\\d+$"
 
 	// See udevadm(8).
 	udevDevicePropertyPrefix = "E:"
@@ -113,7 +113,7 @@ func NewDiskstatsCollector(logger log.Logger) (Collector, error) {
 		infoDesc: typedFactorDesc{
 			desc: prometheus.NewDesc(prometheus.BuildFQName(namespace, diskSubsystem, "info"),
 				"Info of /sys/block/<block_device>.",
-				[]string{"device", "major", "minor", "path", "wwn", "model", "serial", "revision"},
+				[]string{"device", "major", "minor", "path", "wwn", "model", "serial", "revision", "rotational"},
 				nil,
 			), valueType: prometheus.GaugeValue,
 		},
@@ -287,6 +287,13 @@ func (c *diskstatsCollector) Update(ch chan<- prometheus.Metric) error {
 			level.Debug(c.logger).Log("msg", "Failed to parse udev info", "err", err)
 		}
 
+		content, err := os.ReadFile(fmt.Sprintf("/sys/block/%s/queue/rotational", dev))
+		if err != nil {
+			level.Debug(c.logger).Log("msg", "Failed to get sys block device queue stats", "err", err)
+		}
+		rotational := strings.Replace(string(content), "\n", "", -1)
+		i, err := strconv.Atoi(rotational)
+
 		// This is usually the serial printed on the disk label.
 		serial := info[udevSCSIIdentSerial]
 
@@ -303,6 +310,7 @@ func (c *diskstatsCollector) Update(ch chan<- prometheus.Metric) error {
 			info[udevIDModel],
 			serial,
 			info[udevIDRevision],
+			rotational,
 		)
 
 		statCount := stats.IoStatsCount - 3 // Total diskstats record count, less MajorNumber, MinorNumber and DeviceName
